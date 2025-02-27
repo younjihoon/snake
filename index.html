@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Autonomous Snake Battle</title>
+  <style>
+    body { margin: 0; background: #111; }
+    canvas {
+      background: #222;
+      display: block;
+      margin: 20px auto;
+      border: 2px solid #555;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+  <script>
+    // Setup canvas and grid
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const cellSize = 20;
+    const cols = canvas.width / cellSize;
+    const rows = canvas.height / cellSize;
+
+    let snakes = [];
+    let foods = [];
+
+    // Snake class
+    class Snake {
+      constructor(id, x, y, color) {
+        this.id = id;
+        this.body = [{x: x, y: y}];
+        this.dir = {x: 1, y: 0}; // initial direction (to the right)
+        this.color = color;
+        this.alive = true;
+        this.grow = 0;
+      }
+      
+      // Update snake's position using a simple AI to chase food
+      update() {
+        if (!this.alive) return;
+        
+        // Find the nearest food
+        let targetFood = findClosestFood(this.body[0]);
+        if (targetFood) {
+          let dx = targetFood.x - this.body[0].x;
+          let dy = targetFood.y - this.body[0].y;
+          let newDir = {x: 0, y: 0};
+          // Prefer the axis with the larger distance
+          if (Math.abs(dx) > Math.abs(dy)) {
+            newDir.x = dx > 0 ? 1 : -1;
+          } else {
+            newDir.y = dy > 0 ? 1 : -1;
+          }
+          // Prevent reversing on itself (if length > 1)
+          if (this.body.length > 1) {
+            let nextX = this.body[0].x + newDir.x;
+            let nextY = this.body[0].y + newDir.y;
+            let secondCell = this.body[1];
+            if (nextX === secondCell.x && nextY === secondCell.y) {
+              newDir = this.dir;
+            }
+          }
+          // Check if the new direction leads to a dangerous cell
+          let nextPos = { x: this.body[0].x + newDir.x, y: this.body[0].y + newDir.y };
+          if (!isSafe(nextPos, this)) {
+            // Try turning (rotate 90° left or right)
+            let alternatives = [
+              { x: this.dir.y, y: -this.dir.x },
+              { x: -this.dir.y, y: this.dir.x }
+            ];
+            let safeFound = false;
+            for (let alt of alternatives) {
+              let pos = { x: this.body[0].x + alt.x, y: this.body[0].y + alt.y };
+              if (isSafe(pos, this)) {
+                newDir = alt;
+                safeFound = true;
+                break;
+              }
+            }
+            if (!safeFound) {
+              // If no safe turn, keep moving in the same direction (even if unsafe)
+              newDir = this.dir;
+            }
+          }
+          this.dir = newDir;
+        }
+        
+        // Calculate new head position
+        let newHead = { x: this.body[0].x + this.dir.x, y: this.body[0].y + this.dir.y };
+        
+        // Check for wall collisions
+        if (newHead.x < 0 || newHead.x >= cols || newHead.y < 0 || newHead.y >= rows) {
+          this.alive = false;
+          return;
+        }
+        
+        // Check collisions with any snake (including self)
+        if (!isSafe(newHead, this)) {
+          this.alive = false;
+          return;
+        }
+        
+        // Insert the new head
+        this.body.unshift(newHead);
+        
+        // Check if food is eaten
+        let ateFood = false;
+        for (let i = 0; i < foods.length; i++) {
+          if (foods[i].x === newHead.x && foods[i].y === newHead.y) {
+            ateFood = true;
+            foods.splice(i, 1); // Remove eaten food
+            addFood();          // Add a replacement food
+            break;
+          }
+        }
+        
+        // If no food eaten, remove the tail (unless growing)
+        if (!ateFood) {
+          if (this.grow > 0) {
+            this.grow--;
+          } else {
+            this.body.pop();
+          }
+        } else {
+          // Grow the snake by extra segments on food consumption
+          this.grow += 2;
+        }
+      }
+      
+      // Draw the snake on the canvas
+      draw() {
+        ctx.fillStyle = this.color;
+        for (let segment of this.body) {
+          ctx.fillRect(segment.x * cellSize, segment.y * cellSize, cellSize, cellSize);
+        }
+      }
+    }
+
+    // Find the closest food item to the given head position
+    function findClosestFood(head) {
+      if (foods.length === 0) return null;
+      let closest = null;
+      let minDist = Infinity;
+      for (let food of foods) {
+        let dist = Math.abs(food.x - head.x) + Math.abs(food.y - head.y);
+        if (dist < minDist) {
+          minDist = dist;
+          closest = food;
+        }
+      }
+      return closest;
+    }
+
+    // Check if a given cell is safe (not occupied by any snake)
+    function isSafe(pos, currentSnake) {
+      for (let snake of snakes) {
+        for (let segment of snake.body) {
+          if (pos.x === segment.x && pos.y === segment.y) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+
+    // Add a food item at a random free cell
+    function addFood() {
+      let pos;
+      do {
+        pos = {
+          x: Math.floor(Math.random() * cols),
+          y: Math.floor(Math.random() * rows)
+        };
+      } while (!isSafe(pos, null));
+      foods.push(pos);
+    }
+
+    // Initialize the game state
+    function init() {
+      snakes = [];
+      // Create three snakes with starting positions and unique colors
+      snakes.push(new Snake(1, Math.floor(cols/4), Math.floor(rows/2), "lime"));
+      snakes.push(new Snake(2, Math.floor(cols/2), Math.floor(rows/2), "red"));
+      snakes.push(new Snake(3, Math.floor(3*cols/4), Math.floor(rows/2), "yellow"));
+      
+      foods = [];
+      // Place several food items on the board
+      for (let i = 0; i < 5; i++) {
+        addFood();
+      }
+    }
+
+    // Main game loop
+    function gameLoop() {
+      // Update each snake
+      for (let snake of snakes) {
+        if (snake.alive) {
+          snake.update();
+        }
+      }
+      
+      // Clear the canvas
+      ctx.fillStyle = "#222";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw food items
+      ctx.fillStyle = "white";
+      for (let food of foods) {
+        ctx.fillRect(food.x * cellSize, food.y * cellSize, cellSize, cellSize);
+      }
+      
+      // Draw all snakes
+      for (let snake of snakes) {
+        if (snake.alive) {
+          snake.draw();
+        }
+      }
+      
+      // If only one (or zero) snake remains alive, restart the game after a short pause
+      let aliveSnakes = snakes.filter(snake => snake.alive);
+      if (aliveSnakes.length <= 1) {
+        setTimeout(init, 2000);
+      }
+    }
+
+    // Start the game
+    init();
+    setInterval(gameLoop, 150);
+  </script>
+</body>
+</html>
